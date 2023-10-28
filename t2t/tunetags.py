@@ -1,6 +1,6 @@
 # coding=UTF8
 
-# tune2tube.py
+# tune2tubeclass.py
 #
 # Copyright (C) 2014-2018 Michiel Sikma and contributors
 #

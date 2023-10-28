@@ -1,6 +1,6 @@
 # coding=UTF8
 
-# tune2tube.py
+# tune2tubeclass.py
 #
 # Copyright (C) 2014-2018 Michiel Sikma and contributors
 #
@@ -49,5 +49,5 @@ def error_exit(str='unknown error'):
     '''
     Exits the program with an error message.
     '''
-    print('tune2tube.py: error: %(str)s' % {'str': str})
+    print('tune2tubeclass.py: error: %(str)s' % {'str': str})
     exit()

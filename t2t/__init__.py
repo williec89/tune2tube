@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding=UTF8
 
-# tune2tube.py
+# tune2tubeclass.py
 #
 # Copyright (C) 2014-2015 Michiel Sikma and contributors
 #
@@ -17,5 +17,5 @@
 # or implied. See the License for the specific language governing
 # permissions and limitations under the License.
 
-from tune2tube import Tune2Tube
-from tunetags import TuneTags
+from . tune2tubeclass import Tune2Tube
+from . tunetags import TuneTags

@@ -1,7 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # coding=UTF8
 
-# tune2tube.py
+# tune2tubeclass.py
 #
 # Copyright (C) 2014-2018 Michiel Sikma and contributors
 #
@@ -24,13 +24,14 @@ import subprocess
 import sys
 import re
 import os
-import httplib
+import http.client as httplib
 import httplib2
 import random
 import time
 import mutagen
+import math
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from apiclient.discovery import build
 from apiclient.errors import HttpError
 from apiclient.http import MediaFileUpload
@@ -38,19 +39,29 @@ from oauth2client.client import (flow_from_clientsecrets,
                                  AccessTokenRefreshError)
 from oauth2client.file import Storage
 from oauth2client.tools import argparser, run_flow
-from utils import bytes_to_human, error_exit
-from tunetags import TuneTags
+from . utils import bytes_to_human, error_exit
+from . tunetags import TuneTags
 
+script_path = os.path.abspath(__file__)
+
+# Get the parent directory of the script's location
+parent_directory = os.path.dirname(script_path)
+project_path = os.path.dirname(parent_directory)
 
 class Tune2Tube(object):
     def __init__(self):
+        timestamp = time.time()
+        current_date = time.gmtime(timestamp)
+
+        string_date = time.strftime('%Y-%m-%d__%H:%M:%S', current_date)
+
         self.settings = {
             # ffmpeg is a dependency for this script. ffprobe should be
             # installed along with ffmpeg.
             'path_ffmpeg': 'ffmpeg',
             'path_ffprobe': 'ffprobe',
             # Temporary output filename.
-            'path_output': 'tmp.mp4',
+            'path_output': project_pat+'/'+string_date+'.mp4',
             # Version number.
             't2t_version': '0.1',
             # Whether to display ffmpeg/ffprobe output.
@@ -152,13 +163,13 @@ uploading it to Youtube.'''
             '--cs_json',
             help='''Path to the client secrets json file \
 (default: client_secrets.json).''',
-            default='client_secrets.json'
+            default=project_path+'/client_secrets.json'
         )
         argparser.add_argument(
             '--privacy',
             choices=self.valid_privacy_statuses,
             help='Privacy status of the video (default: unlisted).',
-            default='unlisted'
+            default='public'
         )
         argparser.add_argument(
             '--category',
@@ -169,7 +180,7 @@ the default is 10, Music).'''
         argparser.add_argument(
             '--keywords',
             help='Comma-separated list of video keywords/tags.',
-            default=''
+            default='Anime Lofi,Relaxing Study Music,Chill Anime Vibes,Serene Beats,Anime Characters,Peaceful Lofi,Relaxation Music'
         )
         mxgroup = argparser.add_mutually_exclusive_group()
         mxgroup.add_argument(
@@ -242,7 +253,7 @@ description (default: True).''',
             self.settings['client_secrets_file'],
             scope=self.youtube_upload_scope,
             message=self.missing_client_secrets_message % (
-                'tune2tube.py',
+                'tune2tubeclass.py',
                 os.path.abspath(os.path.join(
                     os.path.dirname(__file__),
                     self.settings['client_secrets_file']
@@ -250,7 +261,7 @@ description (default: True).''',
             )
         )
 
-        storage = Storage('%s-oauth2.json' % 'tune2tube.py')
+        storage = Storage('%s-oauth2.json' % project_path+'/tune2tubeclass.py')
         credentials = storage.get()
         if credentials is None or credentials.invalid \
            or self.settings['no_stored_auth']:
@@ -261,8 +272,41 @@ description (default: True).''',
             self.youtube_api_version,
             http=credentials.authorize(httplib2.Http())
         )
+    
+    def get_random_particle():
+        files = [
+            'particlesfg2.mp4',
+            'particlebokeh2.mp4',
+            'particlefg.mp4',
+        ]
+        return random.choice(files)
 
-    def initialize_upload(self, youtube, args, upfile):
+
+    def get_random_title():
+        titles = Tune2Tube.get_list_of_titles()
+        return random.choice(titles)
+
+    def get_list_of_titles():
+        titles = []
+        with open(project_path+'/titles.txt', 'r') as file:
+            for line in file:
+                titles.append(line.strip())  # .strip() removes any leading/trailing whitespace
+
+        return titles
+        
+    def get_description():
+        description = ''
+        with open(project_path+'/description.txt', 'r') as file:
+            description = file.read()
+
+        return description
+
+    def seconds_to_rounded_hours(seconds):
+        hours = seconds / 3600
+        rounded_hours = math.ceil(hours)
+        return rounded_hours
+
+    def initialize_upload(self, youtube, args, upfile, time):
         '''
         Begin a resumable video upload.
         '''
@@ -281,12 +325,18 @@ description (default: True).''',
             title = self.settings['title']
 
         if title == '':
-            title = '(no title)'
+            hours = Tune2Tube.seconds_to_rounded_hours(time)
+            if (hours > 1):
+                title = "[%s Hours] | " % hours
+            else:
+                title = "[%s Hour] | " % hours
+            title += str(Tune2Tube.get_random_title())
 
         # Add the metadata tags to the description if needed.
-        description = self.settings['description'].strip()
+        description = str(Tune2Tube.get_description())
+
         if self.settings['add_metadata']:
-            if description is not '':
+            if description != '':
                 description += '\n'
             # Sort the list of metadata, so that items with linebreaks go last.
             metalist = [{
@@ -338,8 +388,10 @@ description (default: True).''',
         error = None
         retry = 0
         while response is None:
+            # print(str(response))
             try:
                 status, response = insert_request.next_chunk()
+
                 if 'id' in response:
                     print('''Video ID `%s' was successfully uploaded. \
 Its visibility is set to `%s'.''' % (response['id'], self.settings['privacy']))
@@ -350,17 +402,17 @@ finish processing; typically 1-10 minutes.''')
                 else:
                     error_exit('''The upload failed with an unexpected \
 response: %s''' % response)
-            except HttpError, e:
+            except HttpError as e:
                 if e.resp.status in self.retriable_status_codes:
                     error = '''A retriable HTTP error %d occurred:\n%s''' % (
                         e.resp.status, e.content
                     )
                 else:
                     raise
-            except self.retriable_exceptions, e:
+            except self.retriable_exceptions as e:
                 error = 'A retriable error occurred: %s' % e
 
-            if error is not None:
+            if error != None:
                 print(error)
                 retry += 1
                 if retry > self.max_retries:
@@ -377,8 +429,14 @@ retrying...''' % sleep_seconds)
         Encodes a video file from our audio and image input files.
         '''
         # Check to see if our files exist at all.
-        if not (os.path.exists(audio) and os.path.exists(image)):
-            error_exit('please specify a valid audio and image file')
+        if not (os.path.exists(audio)):
+            print(str(audio))
+            error_exit('please specify a valid audio  file')
+
+        if not (os.path.exists(image)):
+            print(os.path.exists(image))
+            print(str(image))
+            error_exit('please specify a valid image file')
 
         in_image_ext = os.path.splitext(image)[1]
         in_audio_ext = os.path.splitext(audio)[1]
@@ -406,7 +464,7 @@ retrying...''' % sleep_seconds)
         # Keep the original Mutagen output around too.
         self.settings['metadata'] = {}
         self.settings['orig_metadata'] = metadata
-        if metadata is not None:
+        if metadata != None:
             for tag in metadata:
                 item = metadata[tag]
                 # We join the item in case it's still a list, as in the case
@@ -415,13 +473,13 @@ retrying...''' % sleep_seconds)
                     item = [n for n in item if isinstance(n, (unicode))]
                     if item == []: continue
                     item = ''.join(item)
-                elif not isinstance(item, (unicode)):
+                elif not isinstance(item, str):
                     continue
                 self.settings['metadata'][self.tunetags.tag_lookup(tag)] = \
                     str(item)
 
         # Lift the actual track duration string out of the output.
-        duration = re.findall('Duration: (.+?),', probe_out)
+        duration = re.findall(b'Duration: (.+?),'.decode('utf-8'), probe_out.decode('utf-8'))
 
         # If we get valid output, parse the duration and get a seconds value.
         # Otherwise, stop the script.
@@ -465,19 +523,24 @@ longer than 24 hours. (Duration: %s, exception: %s)''' % (
             ))
 
         print('Encoding video file...')
+        dir_path = os.path.dirname(os.path.realpath(__file__))
+        print(dir_path)
 
         # Now call ffmpeg and produce the video.
         ffmpeg_cmd = [
             self.settings['path_ffmpeg'],
-            # loop the video (picture) for the movie's duration
+            '-framerate', '60',
+            '-hwaccel', 'cuda',
+            '-hwaccel_output_format', 'cuda',
+            '-stream_loop', '-1',
             '-loop', '1',
-            # a framerate of 1fps (anything lower won't be accepted by Youtube)
-            '-framerate', '1:1',
-            # one input file is the picture
             '-i', image,
-            # automatically overwrite on duplicate
-            '-y',
+            '-stream_loop', '-1',
+            '-i', project_path+'/_src/'+Tune2Tube.get_random_particle(),
+            '-stream_loop', '-1',
         ]
+        print(ffmpeg_cmd)
+
         # Add the audio file.
         if in_audio_ext == '.flac' or in_audio_ext == '.wav':
             # mp4 doesn't take flac very well, so we'll convert it.
@@ -493,33 +556,39 @@ longer than 24 hours. (Duration: %s, exception: %s)''' % (
             ])
         else:
             ffmpeg_cmd.extend([
-                # one input file is the audio
                 '-i', audio,
-                # only copy the audio, don't re-encode it
-                '-c:a', 'copy',
             ])
         # Add the video encoding options.
+        timetake = delta.total_seconds()
         ffmpeg_cmd.extend([
             # use x264 as the video encoder
-            '-c:v', 'libx264',
+            # '-filter_complex', '"[0:v]scale=3840:2160[img];[img][1:v]blend=all_mode=lighten:all_opacity=1[out];[2:a]amerge=inputs=1[aout]"',
+            '-filter_complex', '[0:v]scale=1920:1080,format=gbrp[img1];[1:v]scale=1920:1080,format=gbrp[img2];[img1][img2]blend=all_mode=lighten:all_opacity=1[out];[2:a]amerge=inputs=1[aout]',
+            '-map', '[out]',
+            '-map', '[aout]',
+            '-c:v', 'h264_nvenc',
+            '-b:v', '8000000',
             # duration of the video
             '-t', str(delta.total_seconds()),
+            # '-t', '5',
             # 4:4:4 chroma subsampling (best quality)
-            '-pix_fmt', 'yuv444p',
             # as fast as possible, at cost of filesize
             # (uploading likely costs less time)
-            '-preset', 'ultrafast',
             # lossless quality
             '-qp', '0',
             # output
+            '-c:a', 'mp3',
+            '-y',
             self.settings['path_output']
         ])
 
         try:
+            print("FFmpeg command:", " ".join(ffmpeg_cmd))
             probe_out = subprocess.check_output(
-                ffmpeg_cmd,
-                stderr=subprocess.STDOUT
+                ffmpeg_cmd
             )
+            probe_out_str = probe_out.decode('utf-8')
+            print(probe_out_str)
             if self.settings['verbose']:
                 print(probe_out)
         except:
@@ -530,12 +599,14 @@ Try again with -v (--verbose) to see what went wrong. \
         print('Successfully generated the file `%s\'.'
               % self.settings['path_output'])
 
+        return timetake
+
     def upload_tune(self, audio, image, args, video_ready=False):
         '''
         Uploads a video to Youtube.
         '''
         if not video_ready:
-            self.generate_video(audio, image)
+            timetake = self.generate_video(audio, image)
 
         if self.settings['generate_only']:
             print('Skipping Youtube upload.')
@@ -545,20 +616,20 @@ Try again with -v (--verbose) to see what went wrong. \
         print('Authenticating using the Youtube API...')
         try:
             youtube = self.get_authenticated_service(args)
-        except httplib2.ServerNotFoundError, e:
+        except httplib2.ServerNotFoundError as e:
             error_exit('%s.' % e)
 
         try:
-            self.initialize_upload(youtube, args, self.settings['path_output'])
-        except HttpError, e:
+            self.initialize_upload(youtube, args, self.settings['path_output'], timetake)
+        except HttpError as e:
             print('An HTTP error %d occurred:\n%s' % (
                 e.resp.status,
                 e.content
             ))
-        except AccessTokenRefreshError, e:
+        except AccessTokenRefreshError as e:
             print('''The stored access token seems to be invalid. Delete any \
 -oauth2.json files that may exist and try again, or try again with the \
 --no_stored_auth switch.''')
 
     def change_settings(self, overrides):
-        self.settings = dict(self.settings.items() + overrides.items())
+        self.settings.update(overrides)

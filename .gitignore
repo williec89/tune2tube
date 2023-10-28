@@ -14,6 +14,9 @@ client_secrets.json
 # The default output file name
 tmp.mkv
 tmp.mp4
+*.mp4
+*.log
+*.txt
 
 # Mac OS X-specific
 Network Trash Folder
